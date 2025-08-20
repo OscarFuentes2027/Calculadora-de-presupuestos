@@ -29,6 +29,7 @@ export default function LoanCalculator() {
   const [monto, setMonto] = useState("")
   const [meses, setMeses] = useState("")
   const [esSocio, setEsSocio] = useState(false)
+  const [pagosAMeses, setPagosAMeses] = useState(false)
   const [tabla, setTabla] = useState<AmortizationRow[]>([])
   const [resumen, setResumen] = useState<LoanSummary | null>(null)
   const [errores, setErrores] = useState<string[]>([])
@@ -58,69 +59,97 @@ export default function LoanCalculator() {
     const mesesNum = Number.parseInt(meses)
     const tasaInteres = esSocio ? 0.03 : 0.06
 
-    // Calcular pago regular (sin la última cuota de ajuste)
-    const pagoRegular = Math.round((montoNum / mesesNum) * 100) / 100
+    if (pagosAMeses) {
+      // Modo: Pagos a meses (cuotas mensuales)
+      const pagoRegular = Math.round((montoNum / mesesNum) * 100) / 100
 
-    const tablaAmortizacion: AmortizationRow[] = []
-    let saldoActual = montoNum
-    let totalIntereses = 0
+      const tablaAmortizacion: AmortizationRow[] = []
+      let saldoActual = montoNum
+      let totalIntereses = 0
 
-    for (let periodo = 1; periodo <= mesesNum; periodo++) {
-      const saldoInicial = Math.round(saldoActual * 100) / 100
-      const interes = Math.round(saldoInicial * tasaInteres * 100) / 100
+      for (let periodo = 1; periodo <= mesesNum; periodo++) {
+        const saldoInicial = Math.round(saldoActual * 100) / 100
+        const interes = Math.round(saldoInicial * tasaInteres * 100) / 100
 
-      let abonoCapital: number
-      let pagoTotal: number
+        let abonoCapital: number
+        let pagoTotal: number
 
-      if (periodo === mesesNum) {
-        // Última cuota: ajustar para que el saldo final sea exactamente 0
-        abonoCapital = saldoInicial
-        pagoTotal = Math.round((saldoInicial + interes) * 100) / 100
-      } else {
-        abonoCapital = Math.round((pagoRegular - interes) * 100) / 100
-        pagoTotal = pagoRegular
+        if (periodo === mesesNum) {
+          // Última cuota: ajustar para que el saldo final sea exactamente 0
+          abonoCapital = saldoInicial
+          pagoTotal = Math.round((saldoInicial + interes) * 100) / 100
+        } else {
+          abonoCapital = Math.round((pagoRegular - interes) * 100) / 100
+          pagoTotal = pagoRegular
 
-        // Asegurar que el abono a capital no sea negativo
-        if (abonoCapital < 0) {
-          abonoCapital = 0
-          pagoTotal = interes
+          // Asegurar que el abono a capital no sea negativo
+          if (abonoCapital < 0) {
+            abonoCapital = 0
+            pagoTotal = interes
+          }
         }
+
+        const saldoFinal = Math.round((saldoInicial - abonoCapital) * 100) / 100
+
+        tablaAmortizacion.push({
+          periodo,
+          saldoInicial,
+          interes,
+          abonoCapital,
+          pagoTotal,
+          saldoFinal,
+        })
+
+        saldoActual = saldoFinal
+        totalIntereses += interes
       }
 
-      const saldoFinal = Math.round((saldoInicial - abonoCapital) * 100) / 100
+      // Calcular resumen para pagos a meses
+      const ultimaCuota = tablaAmortizacion[tablaAmortizacion.length - 1].pagoTotal
+      const totalPagado = tablaAmortizacion.reduce((sum, row) => sum + row.pagoTotal, 0)
 
-      tablaAmortizacion.push({
-        periodo,
-        saldoInicial,
-        interes,
-        abonoCapital,
-        pagoTotal,
-        saldoFinal,
+      setTabla(tablaAmortizacion)
+      setResumen({
+        cuotasRegulares: mesesNum - 1,
+        montoCuotaRegular: pagoRegular,
+        ultimaCuota,
+        totalCapital: montoNum,
+        totalIntereses: Math.round(totalIntereses * 100) / 100,
+        totalPagado: Math.round(totalPagado * 100) / 100,
       })
+    } else {
+      // Modo: Pago único al final
+      let totalIntereses = 0
+      let saldoActual = montoNum
 
-      saldoActual = saldoFinal
-      totalIntereses += interes
+      // Calcular intereses acumulados durante todo el período
+      for (let periodo = 1; periodo <= mesesNum; periodo++) {
+        const saldoInicial = Math.round(saldoActual * 100) / 100
+        const interes = Math.round(saldoInicial * tasaInteres * 100) / 100
+        totalIntereses += interes
+        saldoActual = saldoInicial + interes // El saldo crece con los intereses
+      }
+
+      const totalPagado = Math.round((montoNum + totalIntereses) * 100) / 100
+
+      // No crear tabla de amortización para pago único
+      setTabla([])
+      setResumen({
+        cuotasRegulares: 0,
+        montoCuotaRegular: 0,
+        ultimaCuota: totalPagado,
+        totalCapital: montoNum,
+        totalIntereses: Math.round(totalIntereses * 100) / 100,
+        totalPagado: totalPagado,
+      })
     }
-
-    // Calcular resumen
-    const ultimaCuota = tablaAmortizacion[tablaAmortizacion.length - 1].pagoTotal
-    const totalPagado = tablaAmortizacion.reduce((sum, row) => sum + row.pagoTotal, 0)
-
-    setTabla(tablaAmortizacion)
-    setResumen({
-      cuotasRegulares: mesesNum - 1,
-      montoCuotaRegular: pagoRegular,
-      ultimaCuota,
-      totalCapital: montoNum,
-      totalIntereses: Math.round(totalIntereses * 100) / 100,
-      totalPagado: Math.round(totalPagado * 100) / 100,
-    })
   }
 
   const limpiar = () => {
     setMonto("")
     setMeses("")
     setEsSocio(false)
+    setPagosAMeses(false)
     setTabla([])
     setResumen(null)
     setErrores([])
@@ -176,6 +205,14 @@ export default function LoanCalculator() {
                   <span className="text-sm">{esSocio ? "Sí (3% mensual)" : "No (6% mensual)"}</span>
                 </div>
               </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="pagosAMeses">Pagos a meses</Label>
+                <div className="flex items-center space-x-2 pt-2">
+                  <Switch id="pagosAMeses" checked={pagosAMeses} onCheckedChange={setPagosAMeses} />
+                  <span className="text-sm">{pagosAMeses ? "Sí (cuotas mensuales)" : "No (pago único al final)"}</span>
+                </div>
+              </div>
             </div>
 
             {/* Errores */}
@@ -205,41 +242,51 @@ export default function LoanCalculator() {
                 {/* Resumen de pagos */}
                 <div className="bg-muted/50 rounded-lg p-4">
                   <p className="text-lg font-medium text-center">
-                    Se debe pagar {resumen.cuotasRegulares} cuotas de{" "}
-                    <span className="font-bold text-primary">{formatearMoneda(resumen.montoCuotaRegular)}</span> y una
-                    última de <span className="font-bold text-primary">{formatearMoneda(resumen.ultimaCuota)}</span>
+                    {pagosAMeses ? (
+                      <>
+                        Se debe pagar {resumen.cuotasRegulares} cuotas de{" "}
+                        <span className="font-bold text-primary">{formatearMoneda(resumen.montoCuotaRegular)}</span> y una
+                        última de <span className="font-bold text-primary">{formatearMoneda(resumen.ultimaCuota)}</span>
+                      </>
+                    ) : (
+                      <>
+                        Se debe pagar <span className="font-bold text-primary">{formatearMoneda(resumen.ultimaCuota)}</span> en el lapso de {meses} meses
+                      </>
+                    )}
                   </p>
                 </div>
 
-                {/* Tabla de amortización */}
-                <div className="overflow-x-auto">
-                  <table className="w-full border-collapse border border-border">
-                    <thead>
-                      <tr className="bg-muted">
-                        <th className="border border-border p-2 text-left">Período</th>
-                        <th className="border border-border p-2 text-right">Saldo Inicial</th>
-                        <th className="border border-border p-2 text-right">Interés</th>
-                        <th className="border border-border p-2 text-right">Abono Capital</th>
-                        <th className="border border-border p-2 text-right">Pago Total</th>
-                        <th className="border border-border p-2 text-right">Saldo Final</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {tabla.map((fila) => (
-                        <tr key={fila.periodo} className="hover:bg-muted/30">
-                          <td className="border border-border p-2">{fila.periodo}</td>
-                          <td className="border border-border p-2 text-right">{formatearMoneda(fila.saldoInicial)}</td>
-                          <td className="border border-border p-2 text-right">{formatearMoneda(fila.interes)}</td>
-                          <td className="border border-border p-2 text-right">{formatearMoneda(fila.abonoCapital)}</td>
-                          <td className="border border-border p-2 text-right font-medium">
-                            {formatearMoneda(fila.pagoTotal)}
-                          </td>
-                          <td className="border border-border p-2 text-right">{formatearMoneda(fila.saldoFinal)}</td>
+                {/* Tabla de amortización - solo mostrar si pagos a meses está activo */}
+                {pagosAMeses && tabla.length > 0 && (
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse border border-border">
+                      <thead>
+                        <tr className="bg-muted">
+                          <th className="border border-border p-2 text-left">Período</th>
+                          <th className="border border-border p-2 text-right">Saldo Inicial</th>
+                          <th className="border border-border p-2 text-right">Interés</th>
+                          <th className="border border-border p-2 text-right">Abono Capital</th>
+                          <th className="border border-border p-2 text-right">Pago Total</th>
+                          <th className="border border-border p-2 text-right">Saldo Final</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody>
+                        {tabla.map((fila) => (
+                          <tr key={fila.periodo} className="hover:bg-muted/30">
+                            <td className="border border-border p-2">{fila.periodo}</td>
+                            <td className="border border-border p-2 text-right">{formatearMoneda(fila.saldoInicial)}</td>
+                            <td className="border border-border p-2 text-right">{formatearMoneda(fila.interes)}</td>
+                            <td className="border border-border p-2 text-right">{formatearMoneda(fila.abonoCapital)}</td>
+                            <td className="border border-border p-2 text-right font-medium">
+                              {formatearMoneda(fila.pagoTotal)}
+                            </td>
+                            <td className="border border-border p-2 text-right">{formatearMoneda(fila.saldoFinal)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
 
                 {/* Totales */}
                 <div className="bg-primary/5 rounded-lg p-4">
