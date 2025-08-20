@@ -104,7 +104,7 @@ export default function LoanCalculator() {
         totalIntereses += interes
       }
 
-      // Calcular resumen para pagos a meses
+      // Calcular resumen para pagos a meses 
       const ultimaCuota = tablaAmortizacion[tablaAmortizacion.length - 1].pagoTotal
       const totalPagado = tablaAmortizacion.reduce((sum, row) => sum + row.pagoTotal, 0)
 
