@@ -1,7 +1,12 @@
+/** @type {import('next').NextConfig} */
+const isGH = process.env.GITHUB_PAGES === 'true'
+const repo = 'Calculadora-de-presupuestos' // <-- cámbialo
+
 export default {
   output: 'export',
-  basePath: '/Calculadora-de-presupuestos',
-  assetPrefix: '/Calculadora-de-presupuestos/',
   images: { unoptimized: true },
-  trailingSlash: true,
-};
+  basePath: isGH ? `/${repo}` : '',
+  assetPrefix: isGH ? `/${repo}/` : undefined,
+  // opcional si tienes problemas con rutas:
+  // trailingSlash: true,
+}

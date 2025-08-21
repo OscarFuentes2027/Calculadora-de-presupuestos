@@ -5,6 +5,7 @@
   "scripts": {
   "dev": "next dev",
   "build": "next build",
+  "start": "next start",
   "clean": "node -e \"const fs=require('fs');for(const d of ['.next','out']){if(fs.existsSync(d)) fs.rmSync(d,{recursive:true,force:true})}\"",
   "deploy": "gh-pages -d dist",
   "predeploy": "npm run build"
