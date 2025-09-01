@@ -23,6 +23,7 @@ interface LoanSummary {
   totalCapital: number
   totalIntereses: number
   totalPagado: number
+  mesesCalculados: number
 }
 
 export default function LoanCalculator() {
@@ -30,6 +31,8 @@ export default function LoanCalculator() {
   const [meses, setMeses] = useState("")
   const [esSocio, setEsSocio] = useState(false)
   const [pagosAMeses, setPagosAMeses] = useState(false)
+  const [montoCuotaPersonalizado, setMontoCuotaPersonalizado] = useState("")
+  const [usarCuotaPersonalizada, setUsarCuotaPersonalizada] = useState(false)
   const [tabla, setTabla] = useState<AmortizationRow[]>([])
   const [resumen, setResumen] = useState<LoanSummary | null>(null)
   const [errores, setErrores] = useState<string[]>([])
@@ -48,6 +51,13 @@ export default function LoanCalculator() {
       nuevosErrores.push("Los meses deben ser 1 o más")
     }
 
+    if (usarCuotaPersonalizada && pagosAMeses) {
+      const cuotaPersonalizada = Number.parseFloat(montoCuotaPersonalizado)
+      if (!montoCuotaPersonalizado || isNaN(cuotaPersonalizada) || cuotaPersonalizada <= 0) {
+        nuevosErrores.push("El monto de cuota personalizada debe ser mayor a 0")
+      }
+    }
+
     setErrores(nuevosErrores)
     return nuevosErrores.length === 0
   }
@@ -61,47 +71,97 @@ export default function LoanCalculator() {
 
     if (pagosAMeses) {
       // Modo: Pagos a meses (cuotas mensuales)
-      const pagoRegular = Math.round((montoNum / mesesNum) * 100) / 100
+      let pagoRegular: number
+      
+      if (usarCuotaPersonalizada) {
+        pagoRegular = Number.parseFloat(montoCuotaPersonalizado)
+      } else {
+        pagoRegular = Math.round((montoNum / mesesNum) * 100) / 100
+      }
 
       const tablaAmortizacion: AmortizationRow[] = []
       let saldoActual = montoNum
       let totalIntereses = 0
+      let mesesNecesarios = 0
 
-      for (let periodo = 1; periodo <= mesesNum; periodo++) {
-        const saldoInicial = Math.round(saldoActual * 100) / 100
-        const interes = Math.round(saldoInicial * tasaInteres * 100) / 100
+      // Si NO es cuota personalizada, usar exactamente los meses especificados
+      if (!usarCuotaPersonalizada) {
+        for (let periodo = 1; periodo <= mesesNum; periodo++) {
+          const saldoInicial = Math.round(saldoActual * 100) / 100
+          const interes = Math.round(saldoInicial * tasaInteres * 100) / 100
 
-        let abonoCapital: number
-        let pagoTotal: number
+          let abonoCapital: number
+          let pagoTotal: number
 
-        if (periodo === mesesNum) {
-          // Última cuota: ajustar para que el saldo final sea exactamente 0
-          abonoCapital = saldoInicial
-          pagoTotal = Math.round((saldoInicial + interes) * 100) / 100
-        } else {
-          abonoCapital = Math.round((pagoRegular - interes) * 100) / 100
-          pagoTotal = pagoRegular
+          if (periodo === mesesNum) {
+            // Última cuota: ajustar para que el saldo final sea exactamente 0
+            abonoCapital = saldoInicial
+            pagoTotal = Math.round((saldoInicial + interes) * 100) / 100
+          } else {
+            abonoCapital = Math.round((pagoRegular - interes) * 100) / 100
+            pagoTotal = pagoRegular
 
-          // Asegurar que el abono a capital no sea negativo
-          if (abonoCapital < 0) {
-            abonoCapital = 0
-            pagoTotal = interes
+            // Asegurar que el abono a capital no sea negativo
+            if (abonoCapital < 0) {
+              abonoCapital = 0
+              pagoTotal = interes
+            }
           }
+
+          const saldoFinal = Math.round((saldoInicial - abonoCapital) * 100) / 100
+
+          tablaAmortizacion.push({
+            periodo,
+            saldoInicial,
+            interes,
+            abonoCapital,
+            pagoTotal,
+            saldoFinal,
+          })
+
+          saldoActual = saldoFinal
+          totalIntereses += interes
         }
+        mesesNecesarios = mesesNum
+      } else {
+        // Si SÍ es cuota personalizada, calcular cuántos meses se necesitan
+        while (saldoActual > 0.01 && mesesNecesarios < 1000) { // Límite de seguridad
+          mesesNecesarios++
+          const saldoInicial = Math.round(saldoActual * 100) / 100
+          const interes = Math.round(saldoInicial * tasaInteres * 100) / 100
 
-        const saldoFinal = Math.round((saldoInicial - abonoCapital) * 100) / 100
+          let abonoCapital: number
+          let pagoTotal: number
 
-        tablaAmortizacion.push({
-          periodo,
-          saldoInicial,
-          interes,
-          abonoCapital,
-          pagoTotal,
-          saldoFinal,
-        })
+          if (saldoInicial + interes <= pagoRegular) {
+            // Última cuota: ajustar para que el saldo final sea exactamente 0
+            abonoCapital = saldoInicial
+            pagoTotal = Math.round((saldoInicial + interes) * 100) / 100
+          } else {
+            abonoCapital = Math.round((pagoRegular - interes) * 100) / 100
+            pagoTotal = pagoRegular
 
-        saldoActual = saldoFinal
-        totalIntereses += interes
+            // Asegurar que el abono a capital no sea negativo
+            if (abonoCapital < 0) {
+              abonoCapital = 0
+              pagoTotal = interes
+            }
+          }
+
+          const saldoFinal = Math.round((saldoInicial - abonoCapital) * 100) / 100
+
+          tablaAmortizacion.push({
+            periodo: mesesNecesarios,
+            saldoInicial,
+            interes,
+            abonoCapital,
+            pagoTotal,
+            saldoFinal,
+          })
+
+          saldoActual = saldoFinal
+          totalIntereses += interes
+        }
       }
 
       // Calcular resumen para pagos a meses 
@@ -110,12 +170,13 @@ export default function LoanCalculator() {
 
       setTabla(tablaAmortizacion)
       setResumen({
-        cuotasRegulares: mesesNum - 1,
+        cuotasRegulares: mesesNecesarios - 1,
         montoCuotaRegular: pagoRegular,
         ultimaCuota,
         totalCapital: montoNum,
         totalIntereses: Math.round(totalIntereses * 100) / 100,
         totalPagado: Math.round(totalPagado * 100) / 100,
+        mesesCalculados: mesesNecesarios,
       })
     } else {
       // Modo: Pago único al final
@@ -141,6 +202,7 @@ export default function LoanCalculator() {
         totalCapital: montoNum,
         totalIntereses: Math.round(totalIntereses * 100) / 100,
         totalPagado: totalPagado,
+        mesesCalculados: mesesNum,
       })
     }
   }
@@ -150,6 +212,8 @@ export default function LoanCalculator() {
     setMeses("")
     setEsSocio(false)
     setPagosAMeses(false)
+    setMontoCuotaPersonalizado("")
+    setUsarCuotaPersonalizada(false)
     setTabla([])
     setResumen(null)
     setErrores([])
@@ -161,6 +225,15 @@ export default function LoanCalculator() {
       currency: "MXN",
       minimumFractionDigits: 2,
     }).format(valor)
+  }
+
+  // Calcular monto de cuota sugerido cuando cambian los valores
+  const calcularCuotaSugerida = (): number => {
+    if (!monto || !meses) return 0
+    const montoNum = Number.parseFloat(monto)
+    const mesesNum = Number.parseInt(meses)
+    if (montoNum <= 0 || mesesNum <= 0) return 0
+    return Math.round((montoNum / mesesNum) * 100) / 100
   }
 
   return (
@@ -213,6 +286,50 @@ export default function LoanCalculator() {
                   <span className="text-sm">{pagosAMeses ? "Sí (cuotas mensuales)" : "No (pago único al final)"}</span>
                 </div>
               </div>
+
+              {/* Campo para monto de cuota personalizado - solo mostrar si pagos a meses está activo */}
+              {pagosAMeses && (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="cuotaPersonalizada">Usar cuota personalizada</Label>
+                    <div className="flex items-center space-x-2 pt-2">
+                      <Switch 
+                        id="cuotaPersonalizada" 
+                        checked={usarCuotaPersonalizada} 
+                        onCheckedChange={setUsarCuotaPersonalizada} 
+                      />
+                      <span className="text-sm">Personalizar monto mensual</span>
+                    </div>
+                  </div>
+
+                  {usarCuotaPersonalizada && (
+                    <div className="space-y-2">
+                      <Label htmlFor="montoCuotaPersonalizado">
+                        Monto de cuota mensual
+                        {!usarCuotaPersonalizada && (
+                          <span className="text-sm text-muted-foreground ml-2">
+                            (Sugerido: {formatearMoneda(calcularCuotaSugerida())})
+                          </span>
+                        )}
+                      </Label>
+                      <Input
+                        id="montoCuotaPersonalizado"
+                        type="number"
+                        placeholder={`Ej: ${calcularCuotaSugerida().toFixed(2)}`}
+                        value={montoCuotaPersonalizado}
+                        onChange={(e) => setMontoCuotaPersonalizado(e.target.value)}
+                        step="0.01"
+                        min="0"
+                      />
+                      {!usarCuotaPersonalizada && (
+                        <p className="text-xs text-muted-foreground">
+                          Sugerido: {formatearMoneda(calcularCuotaSugerida())}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
 
             {/* Errores */}
@@ -244,9 +361,23 @@ export default function LoanCalculator() {
                   <p className="text-lg font-medium text-center">
                     {pagosAMeses ? (
                       <>
-                        Se debe pagar {resumen.cuotasRegulares} cuotas de{" "}
-                        <span className="font-bold text-primary">{formatearMoneda(resumen.montoCuotaRegular)}</span> y una
-                        última de <span className="font-bold text-primary">{formatearMoneda(resumen.ultimaCuota)}</span>
+                        {usarCuotaPersonalizada ? (
+                          <>
+                            Se debe pagar {resumen.cuotasRegulares} cuotas de{" "}
+                            <span className="font-bold text-primary">{formatearMoneda(resumen.montoCuotaRegular)}</span> y una
+                            última de <span className="font-bold text-primary">{formatearMoneda(resumen.ultimaCuota)}</span>
+                            <br />
+                            <span className="text-sm text-muted-foreground">
+                              Duración total: {resumen.mesesCalculados} meses
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            Se debe pagar {resumen.cuotasRegulares} cuotas de{" "}
+                            <span className="font-bold text-primary">{formatearMoneda(resumen.montoCuotaRegular)}</span> y una
+                            última de <span className="font-bold text-primary">{formatearMoneda(resumen.ultimaCuota)}</span>
+                          </>
+                        )}
                       </>
                     ) : (
                       <>
