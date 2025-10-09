@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -31,11 +31,11 @@ export default function LoanCalculator() {
   const [meses, setMeses] = useState("")
   const [esSocio, setEsSocio] = useState(false)
   const [pagosAMeses, setPagosAMeses] = useState(false)
-  const [montoCuotaPersonalizado, setMontoCuotaPersonalizado] = useState("")
-  const [usarCuotaPersonalizada, setUsarCuotaPersonalizada] = useState(false)
+  const [montoCuotaMensual, setMontoCuotaMensual] = useState("")
   const [tabla, setTabla] = useState<AmortizationRow[]>([])
   const [resumen, setResumen] = useState<LoanSummary | null>(null)
   const [errores, setErrores] = useState<string[]>([])
+  const [haCalculado, setHaCalculado] = useState(false)
 
   const validarFormulario = (): boolean => {
     const nuevosErrores: string[] = []
@@ -51,10 +51,10 @@ export default function LoanCalculator() {
       nuevosErrores.push("Los meses deben ser 1 o más")
     }
 
-    if (usarCuotaPersonalizada && pagosAMeses) {
-      const cuotaPersonalizada = Number.parseFloat(montoCuotaPersonalizado)
-      if (!montoCuotaPersonalizado || isNaN(cuotaPersonalizada) || cuotaPersonalizada <= 0) {
-        nuevosErrores.push("El monto de cuota personalizada debe ser mayor a 0")
+    if (pagosAMeses) {
+      const cuotaMensual = Number.parseFloat(montoCuotaMensual)
+      if (!montoCuotaMensual || isNaN(cuotaMensual) || cuotaMensual <= 0) {
+        nuevosErrores.push("El monto de cuota mensual debe ser mayor a 0")
       }
     }
 
@@ -71,98 +71,63 @@ export default function LoanCalculator() {
 
     if (pagosAMeses) {
       // Modo: Pagos a meses (cuotas mensuales)
-      let pagoRegular: number
-      
-      if (usarCuotaPersonalizada) {
-        pagoRegular = Number.parseFloat(montoCuotaPersonalizado)
-      } else {
-        pagoRegular = Math.round((montoNum / mesesNum) * 100) / 100
-      }
+      const pagoRegular = Number.parseFloat(montoCuotaMensual)
 
       const tablaAmortizacion: AmortizationRow[] = []
       let saldoActual = montoNum
       let totalIntereses = 0
       let mesesNecesarios = 0
 
-      // Si NO es cuota personalizada, usar exactamente los meses especificados
-      if (!usarCuotaPersonalizada) {
-        for (let periodo = 1; periodo <= mesesNum; periodo++) {
-          const saldoInicial = Math.round(saldoActual * 100) / 100
-          const interes = Math.round(saldoInicial * tasaInteres * 100) / 100
+      // Calcular el saldo total con intereses acumulados
+      let saldoConIntereses = montoNum
+      
+      // Usar exactamente el número de meses especificado
+      for (let periodo = 1; periodo <= mesesNum; periodo++) {
+        const saldoInicial = Math.round(saldoActual * 100) / 100
+        
+        // Calcular intereses sobre el saldo con intereses acumulados
+        const interes = Math.round(saldoConIntereses * tasaInteres * 100) / 100
 
-          let abonoCapital: number
-          let pagoTotal: number
+        let abonoCapital: number
+        let pagoTotal: number
 
-          if (periodo === mesesNum) {
-            // Última cuota: ajustar para que el saldo final sea exactamente 0
-            abonoCapital = saldoInicial
-            pagoTotal = Math.round((saldoInicial + interes) * 100) / 100
+        if (periodo === mesesNum) {
+          // Última cuota: pagar todo el saldo restante más intereses
+          abonoCapital = saldoInicial
+          pagoTotal = Math.round((saldoInicial + interes) * 100) / 100
+        } else {
+          // Cuotas regulares: usar el monto especificado por el usuario
+          pagoTotal = pagoRegular
+          
+          // Calcular cuánto va a capital después de pagar intereses
+          abonoCapital = Math.round((pagoRegular - interes) * 100) / 100
+
+          // Si el pago es menor que el interés, el saldo crece (interés no pagado se acumula)
+          if (abonoCapital < 0) {
+            abonoCapital = 0
+            // Los intereses no pagados se suman al saldo con intereses
+            saldoConIntereses = Math.round((saldoConIntereses + (interes - pagoRegular)) * 100) / 100
           } else {
-            abonoCapital = Math.round((pagoRegular - interes) * 100) / 100
-            pagoTotal = pagoRegular
-
-            // Asegurar que el abono a capital no sea negativo
-            if (abonoCapital < 0) {
-              abonoCapital = 0
-              pagoTotal = interes
-            }
+            // Si se paga capital, reducir el saldo con intereses
+            saldoConIntereses = Math.round((saldoConIntereses - abonoCapital) * 100) / 100
           }
-
-          const saldoFinal = Math.round((saldoInicial - abonoCapital) * 100) / 100
-
-          tablaAmortizacion.push({
-            periodo,
-            saldoInicial,
-            interes,
-            abonoCapital,
-            pagoTotal,
-            saldoFinal,
-          })
-
-          saldoActual = saldoFinal
-          totalIntereses += interes
         }
-        mesesNecesarios = mesesNum
-      } else {
-        // Si SÍ es cuota personalizada, calcular cuántos meses se necesitan
-        while (saldoActual > 0.01 && mesesNecesarios < 1000) { // Límite de seguridad
-          mesesNecesarios++
-          const saldoInicial = Math.round(saldoActual * 100) / 100
-          const interes = Math.round(saldoInicial * tasaInteres * 100) / 100
 
-          let abonoCapital: number
-          let pagoTotal: number
+        const saldoFinal = Math.round((saldoInicial - abonoCapital) * 100) / 100
 
-          if (saldoInicial + interes <= pagoRegular) {
-            // Última cuota: ajustar para que el saldo final sea exactamente 0
-            abonoCapital = saldoInicial
-            pagoTotal = Math.round((saldoInicial + interes) * 100) / 100
-          } else {
-            abonoCapital = Math.round((pagoRegular - interes) * 100) / 100
-            pagoTotal = pagoRegular
+        tablaAmortizacion.push({
+          periodo,
+          saldoInicial,
+          interes,
+          abonoCapital,
+          pagoTotal,
+          saldoFinal,
+        })
 
-            // Asegurar que el abono a capital no sea negativo
-            if (abonoCapital < 0) {
-              abonoCapital = 0
-              pagoTotal = interes
-            }
-          }
-
-          const saldoFinal = Math.round((saldoInicial - abonoCapital) * 100) / 100
-
-          tablaAmortizacion.push({
-            periodo: mesesNecesarios,
-            saldoInicial,
-            interes,
-            abonoCapital,
-            pagoTotal,
-            saldoFinal,
-          })
-
-          saldoActual = saldoFinal
-          totalIntereses += interes
-        }
+        saldoActual = saldoFinal
+        totalIntereses += interes
       }
+      mesesNecesarios = mesesNum
 
       // Calcular resumen para pagos a meses 
       const ultimaCuota = tablaAmortizacion[tablaAmortizacion.length - 1].pagoTotal
@@ -170,14 +135,15 @@ export default function LoanCalculator() {
 
       setTabla(tablaAmortizacion)
       setResumen({
-        cuotasRegulares: mesesNecesarios - 1,
+        cuotasRegulares: mesesNum - 1,
         montoCuotaRegular: pagoRegular,
         ultimaCuota,
         totalCapital: montoNum,
         totalIntereses: Math.round(totalIntereses * 100) / 100,
         totalPagado: Math.round(totalPagado * 100) / 100,
-        mesesCalculados: mesesNecesarios,
+        mesesCalculados: mesesNum,
       })
+      setHaCalculado(true)
     } else {
       // Modo: Pago único al final
       let totalIntereses = 0
@@ -204,6 +170,7 @@ export default function LoanCalculator() {
         totalPagado: totalPagado,
         mesesCalculados: mesesNum,
       })
+      setHaCalculado(true)
     }
   }
 
@@ -212,11 +179,11 @@ export default function LoanCalculator() {
     setMeses("")
     setEsSocio(false)
     setPagosAMeses(false)
-    setMontoCuotaPersonalizado("")
-    setUsarCuotaPersonalizada(false)
+    setMontoCuotaMensual("")
     setTabla([])
     setResumen(null)
     setErrores([])
+    setHaCalculado(false)
   }
 
   const formatearMoneda = (valor: number): string => {
@@ -235,6 +202,16 @@ export default function LoanCalculator() {
     if (montoNum <= 0 || mesesNum <= 0) return 0
     return Math.round((montoNum / mesesNum) * 100) / 100
   }
+
+  // Actualizar automáticamente el monto de cuota mensual cuando cambien monto o meses
+  useEffect(() => {
+    if (pagosAMeses && monto && meses) {
+      const cuotaSugerida = calcularCuotaSugerida()
+      if (cuotaSugerida > 0) {
+        setMontoCuotaMensual(cuotaSugerida.toString())
+      }
+    }
+  }, [monto, meses, pagosAMeses])
 
   return (
     <div className="min-h-screen bg-background p-4">
@@ -287,48 +264,28 @@ export default function LoanCalculator() {
                 </div>
               </div>
 
-              {/* Campo para monto de cuota personalizado - solo mostrar si pagos a meses está activo */}
+              {/* Campo para monto de cuota mensual - solo mostrar si pagos a meses está activo */}
               {pagosAMeses && (
-                <>
-                  <div className="space-y-2">
-                    <Label htmlFor="cuotaPersonalizada">Usar cuota personalizada</Label>
-                    <div className="flex items-center space-x-2 pt-2">
-                      <Switch 
-                        id="cuotaPersonalizada" 
-                        checked={usarCuotaPersonalizada} 
-                        onCheckedChange={setUsarCuotaPersonalizada} 
-                      />
-                      <span className="text-sm">Personalizar monto mensual</span>
-                    </div>
-                  </div>
-
-                  {usarCuotaPersonalizada && (
-                    <div className="space-y-2">
-                      <Label htmlFor="montoCuotaPersonalizado">
-                        Monto de cuota mensual
-                        {!usarCuotaPersonalizada && (
-                          <span className="text-sm text-muted-foreground ml-2">
-                            (Sugerido: {formatearMoneda(calcularCuotaSugerida())})
-                          </span>
-                        )}
-                      </Label>
-                      <Input
-                        id="montoCuotaPersonalizado"
-                        type="number"
-                        placeholder={`Ej: ${calcularCuotaSugerida().toFixed(2)}`}
-                        value={montoCuotaPersonalizado}
-                        onChange={(e) => setMontoCuotaPersonalizado(e.target.value)}
-                        step="0.01"
-                        min="0"
-                      />
-                      {!usarCuotaPersonalizada && (
-                        <p className="text-xs text-muted-foreground">
-                          Sugerido: {formatearMoneda(calcularCuotaSugerida())}
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </>
+                <div className="space-y-2">
+                  <Label htmlFor="montoCuotaMensual">
+                    Monto de cuota mensual
+                    <span className="text-sm text-muted-foreground ml-2">
+                      (Sugerido: {formatearMoneda(calcularCuotaSugerida())})
+                    </span>
+                  </Label>
+                  <Input
+                    id="montoCuotaMensual"
+                    type="number"
+                    placeholder={`Ej: ${calcularCuotaSugerida().toFixed(2)}`}
+                    value={montoCuotaMensual}
+                    onChange={(e) => setMontoCuotaMensual(e.target.value)}
+                    step="0.01"
+                    min="0"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    El saldo restante se ajustará en la última cuota del período
+                  </p>
+                </div>
               )}
             </div>
 
@@ -346,7 +303,7 @@ export default function LoanCalculator() {
             {/* Botones */}
             <div className="flex gap-4">
               <Button onClick={calcularPrestamo} className="flex-1">
-                Calcular
+                {haCalculado ? "Recalcular" : "Calcular"}
               </Button>
               <Button onClick={limpiar} variant="outline" className="flex-1 bg-transparent">
                 Limpiar
@@ -361,23 +318,13 @@ export default function LoanCalculator() {
                   <p className="text-lg font-medium text-center">
                     {pagosAMeses ? (
                       <>
-                        {usarCuotaPersonalizada ? (
-                          <>
-                            Se debe pagar {resumen.cuotasRegulares} cuotas de{" "}
-                            <span className="font-bold text-primary">{formatearMoneda(resumen.montoCuotaRegular)}</span> y una
-                            última de <span className="font-bold text-primary">{formatearMoneda(resumen.ultimaCuota)}</span>
-                            <br />
-                            <span className="text-sm text-muted-foreground">
-                              Duración total: {resumen.mesesCalculados} meses
-                            </span>
-                          </>
-                        ) : (
-                          <>
-                            Se debe pagar {resumen.cuotasRegulares} cuotas de{" "}
-                            <span className="font-bold text-primary">{formatearMoneda(resumen.montoCuotaRegular)}</span> y una
-                            última de <span className="font-bold text-primary">{formatearMoneda(resumen.ultimaCuota)}</span>
-                          </>
-                        )}
+                        Se debe pagar {resumen.cuotasRegulares} cuotas de{" "}
+                        <span className="font-bold text-primary">{formatearMoneda(resumen.montoCuotaRegular)}</span> y una
+                        última de <span className="font-bold text-primary">{formatearMoneda(resumen.ultimaCuota)}</span>
+                        <br />
+                        <span className="text-sm text-muted-foreground">
+                          Duración total: {resumen.mesesCalculados} meses
+                        </span>
                       </>
                     ) : (
                       <>
